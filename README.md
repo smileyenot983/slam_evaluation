@@ -9,10 +9,10 @@ This package does slam/odometry evaluation according to metrics in https://ieeex
 $$E_i = (Q_iQ_{i+\triangle})^{-1}(P_iP_{i+\triangle})$$
 
 where:
-- $$Q_i$$ - ground truth pose in SE(3) at time step $$i$$, a.k.a. homogeneous transformation matrix 
-- $$Q_{i+\triangle}$$ - ground truth pose in SE(3) at time step $$i+\triangle$$ 
-- $$P_i$$ - estimated pose in SE(3) at time step $$i$$, a.k.a. homogeneous transformation matrix
-- $$P_{i+\triangle}$$ - estimated pose in SE(3) at time step $$i+\triangle$$ 
+- $Q_i$ - ground truth pose in SE(3) at time step i, a.k.a. homogeneous transformation matrix 
+- $$Q_{i+\triangle}$$ - ground truth pose in SE(3)  
+- $$P_i$$ - estimated pose in SE(3) at time step i, a.k.a. homogeneous transformation matrix
+- $$P_{i+\triangle}$$ - estimated pose in SE(3) 
 
 2. Relative pose error of the whole trajectory:
 $$RMSE(E_{1:n},\triangle) = (\frac{1}{m} \sum_{i=1}^m  ||trans(E_i)||^2)^\frac{1}{2}$$
