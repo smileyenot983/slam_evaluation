@@ -8,9 +8,23 @@
 
 #include <std_msgs/Float32.h>
 
+#include <message_filters/subscriber.h>
+#include <message_filters/time_synchronizer.h>
+
+#include <message_filters/synchronizer.h>
+#include <message_filters/sync_policies/approximate_time.h>
 
 #include <cmath>
 
+
+#include <fstream>
+
+// #define PUB_SURROUND_PTS 1
+
+#define TIME_SYNCHRONIZATION 0
+#define WRITE_CSV 1
+
+// int TIME_SYNCHRONIZATION = 0;
 
 Eigen::Matrix<double,4,4> odom_to_matrix(const nav_msgs::Odometry &odom_msg)
 {
@@ -42,11 +56,30 @@ Eigen::Matrix<double,4,4> odom_to_matrix(const nav_msgs::Odometry &odom_msg)
     return SE3;
 }
 
+std::vector<double> quat_to_rpy(geometry_msgs::Quaternion quat)
+{
+    tf::Quaternion q1(
+        quat.x,
+        quat.y,
+        quat.z,
+        quat.w
+    );
+
+    tf::Matrix3x3 m1(q1);
+
+    double roll,pitch,yaw;
+    m1.getRPY(roll,pitch,yaw);
+
+    std::vector<double> rpy = {roll,pitch,yaw};
+
+    return rpy;
+}
+
 
 
 class SlamEvaluator{
     public:
-        SlamEvaluator();
+        SlamEvaluator(int time_sync);
 
         ros::NodeHandle nh;
 
@@ -60,22 +93,89 @@ class SlamEvaluator{
         void upd_odom_truth(const nav_msgs::OdometryConstPtr &msg);
         void upd_odom_est(const nav_msgs::OdometryConstPtr &msg);
 
+        void odom_callback(const nav_msgs::OdometryConstPtr &odom_fake, const nav_msgs::OdometryConstPtr &odom_real);
+
         void rmse();
+
+        int time_synchronization = 0;
+
 
         std::vector<nav_msgs::Odometry> odom_truth_hist;
         std::vector<nav_msgs::Odometry> odom_est_hist;
 
+        std::fstream fs;
+
+
 };
+
+SlamEvaluator::SlamEvaluator(int time_sync)
+{
+
+
+    // time_synchronization = TIME_SYNCHRONIZATION;
+
+
+
+    if(time_sync)
+    {
+        message_filters::Subscriber<nav_msgs::Odometry> odom_truth_sub(nh,"/unitree_odom_fake",1);
+        message_filters::Subscriber<nav_msgs::Odometry> odom_est_sub(nh,"/unitree_odom",1);
+
+        typedef message_filters::sync_policies::ApproximateTime<nav_msgs::Odometry, nav_msgs::Odometry> MySyncPolicy;
+    
+        message_filters::Synchronizer<MySyncPolicy> sync(MySyncPolicy(3000),odom_truth_sub,odom_est_sub);
+        sync.registerCallback(boost::bind(&SlamEvaluator::odom_callback,this,_1,_2));
+
+    }
+    else
+    {
+        gazebo_sub = nh.subscribe<nav_msgs::Odometry>("/unitree_odom_fake",10000,&SlamEvaluator::upd_odom_truth,this);
+        odom_sub = nh.subscribe<nav_msgs::Odometry>("/unitree_odom",10000,&SlamEvaluator::upd_odom_est,this);
+    }
+
+
+    // message_filters::TimeSynchronizer<nav_msgs::Odometry,nav_msgs::Odometry> sync(odom_truth_sub,odom_est_sub,30000);
+    // sync.registerCallback(boost::bind(&SlamEvaluator::odom_callback,this,_1,_2));
+
+    rmse_pub = nh.advertise<std_msgs::Float32>("/rmse",10000);
+
+
+    std::string CSV_PATH =  "slam_evaluation_kalmann.csv";
+    fs.open(CSV_PATH, std::fstream::in | std::fstream::out);
+    
+    fs << "time_gt" << ", "
+        << "x_gt" << ", "
+        << "y_gt" << ", "
+        << "z_gt" << ", "
+        << "roll_gt" << ", "
+        << "pitch_gt" << ", "
+        << "yaw_gt" << ", "
+        
+        << "time_est" << ", "
+        << "x_est" << ", "
+        << "y_est" << ", "
+        << "z_est" << ", "
+        << "roll_est" << ", "
+        << "pitch_est" << ", "
+        << "yaw_est" << "\n";
+    
+    
+
     
 
 
+}
 
-SlamEvaluator::SlamEvaluator()
+
+void SlamEvaluator::odom_callback(const nav_msgs::OdometryConstPtr &_odom_truth, const nav_msgs::OdometryConstPtr &_odom_est)
 {
-    gazebo_sub = nh.subscribe<nav_msgs::Odometry>("/unitree_odom",10000,&SlamEvaluator::upd_odom_truth,this);
-    odom_sub = nh.subscribe<nav_msgs::Odometry>("/loam_odom",10000,&SlamEvaluator::upd_odom_est,this);
 
-    rmse_pub = nh.advertise<std_msgs::Float32>("rmse",10000);
+    std::cout << "odom_callback" << std::endl;
+    odom_truth = *_odom_truth;
+    odom_est = *_odom_est;    
+
+    odom_truth_hist.push_back(odom_truth);
+    odom_est_hist.push_back(odom_est);
 
 }
 
@@ -83,16 +183,49 @@ SlamEvaluator::SlamEvaluator()
 
 void SlamEvaluator::upd_odom_truth(const nav_msgs::OdometryConstPtr &msg)
 {
+    // std::cout << "upd1" << std::endl;
     odom_truth = *msg;
 }
 
 void SlamEvaluator::upd_odom_est(const nav_msgs::OdometryConstPtr &msg)
 {
+    // std::cout << "upd2" << std::endl;
     odom_est = *msg;
 
     odom_truth_hist.push_back(odom_truth);
     odom_est_hist.push_back(odom_est);
+
+
+    if(WRITE_CSV)
+    {
+        std::vector<double> rpy_truth = quat_to_rpy(odom_truth.pose.pose.orientation);
+        std::vector<double> rpy_est = quat_to_rpy(odom_est.pose.pose.orientation);
+
+
+        
+        fs << odom_truth.header.stamp << ", "
+            << odom_truth.pose.pose.position.x << ", "
+            << odom_truth.pose.pose.position.y << ", "
+            << odom_truth.pose.pose.position.z << ", "
+            << rpy_truth[0] << ", "
+            << rpy_truth[1] << ", "
+            << rpy_truth[2] << ", "
+            
+            << odom_est.header.stamp << ", "
+            << odom_est.pose.pose.position.x << ", "
+            << odom_est.pose.pose.position.y << ", "
+            << odom_est.pose.pose.position.z << ", "
+            << rpy_est[0] << ", "
+            << rpy_est[1] << ", "
+            << rpy_est[2] << "\n";
+
+
+    }
+
 }
+
+
+
 
 
 void SlamEvaluator::rmse()
@@ -157,6 +290,7 @@ void SlamEvaluator::rmse()
                 // pose error:
                 Eigen::Matrix<double,4,4> RPE = (Q_i.inverse() * Q_ii).inverse() * (P_i.inverse() * P_ii);
 
+                // std::cout << "i: " << i << std::endl;
                 // std::cout << "RPE: " << RPE << std::endl;
 
                 rpe_interval += pow(RPE(0,3),2) + pow(RPE(1,3),2) + pow(RPE(2,3),2);
@@ -194,7 +328,7 @@ int main(int argc, char** argv)
 {
     ros::init(argc,argv,"slam_evaluator");
 
-    SlamEvaluator slam_evaluator;
+    SlamEvaluator slam_evaluator(TIME_SYNCHRONIZATION);
 
     ros::Rate loop_rate(10);
 
