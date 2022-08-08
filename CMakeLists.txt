@@ -26,7 +26,6 @@ include_directories(
 )
 
 catkin_package(
- INCLUDE_DIRS include
  CATKIN_DEPENDS nav_msgs roscpp rospy std_msgs tf
  DEPENDS EIGEN3
 )

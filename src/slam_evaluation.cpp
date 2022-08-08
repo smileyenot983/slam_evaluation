@@ -16,7 +16,8 @@
 
 #include <cmath>
 
-
+#include <stdio.h>
+#include <stdlib.h>
 #include <fstream>
 
 // #define PUB_SURROUND_PTS 1
@@ -139,9 +140,8 @@ SlamEvaluator::SlamEvaluator(int time_sync)
 
     rmse_pub = nh.advertise<std_msgs::Float32>("/rmse",10000);
 
-
-    std::string CSV_PATH =  "slam_evaluation_kalmann.csv";
-    fs.open(CSV_PATH, std::fstream::in | std::fstream::out);
+    std::string CSV_PATH =  "/slam_evaluation_kalmann.csv";
+    fs.open(getenv("HOME")+CSV_PATH, std::fstream::in | std::fstream::out | std::fstream::trunc);
     
     fs << "time_gt" << ", "
         << "x_gt" << ", "
@@ -158,11 +158,6 @@ SlamEvaluator::SlamEvaluator(int time_sync)
         << "roll_est" << ", "
         << "pitch_est" << ", "
         << "yaw_est" << "\n";
-    
-    
-
-    
-
 
 }
 
@@ -198,11 +193,10 @@ void SlamEvaluator::upd_odom_est(const nav_msgs::OdometryConstPtr &msg)
 
     if(WRITE_CSV)
     {
+
         std::vector<double> rpy_truth = quat_to_rpy(odom_truth.pose.pose.orientation);
         std::vector<double> rpy_est = quat_to_rpy(odom_est.pose.pose.orientation);
 
-
-        
         fs << odom_truth.header.stamp << ", "
             << odom_truth.pose.pose.position.x << ", "
             << odom_truth.pose.pose.position.y << ", "
@@ -218,7 +212,6 @@ void SlamEvaluator::upd_odom_est(const nav_msgs::OdometryConstPtr &msg)
             << rpy_est[0] << ", "
             << rpy_est[1] << ", "
             << rpy_est[2] << "\n";
-
 
     }
 
@@ -339,6 +332,7 @@ int main(int argc, char** argv)
 
         loop_rate.sleep();
     }
+    std::cout<<"done"<<std::endl;
 
     return 0;
 
